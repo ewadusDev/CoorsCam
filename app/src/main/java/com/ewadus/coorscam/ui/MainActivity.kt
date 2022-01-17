@@ -6,16 +6,9 @@ import android.content.Intent
 import android.graphics.*
 import android.graphics.drawable.ColorDrawable
 import android.net.Uri
-import android.os.Build
 import androidx.appcompat.app.AppCompatActivity
-import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.Toast
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.ewadus.coorscam.util.Permissions
@@ -24,17 +17,22 @@ import com.ewadus.coorscam.databinding.ActivityMainBinding
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.android.synthetic.main.activity_main.*
 import java.io.File
-import java.io.FileOutputStream
 import java.lang.Exception
 import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import android.graphics.Bitmap
-
-import android.content.ContextWrapper
-
-
-
+import android.os.*
+import android.view.View
+import android.widget.TextView
+import android.widget.Toast
+import androidx.camera.core.*
+import com.ewadus.coorscam.util.Constant.Companion.FILENAME_FORMAT
+import com.ewadus.coorscam.util.LocationManager
+import com.google.android.gms.location.LocationRequest
+import java.io.FileOutputStream
+import java.io.OutputStream
+import java.text.SimpleDateFormat
 
 
 class MainActivity : AppCompatActivity() {
@@ -47,6 +45,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var saveUri: Uri
     private lateinit var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>
     private lateinit var cameraSelector: CameraSelector
+    private lateinit var tvAccuracy: TextView
+    private lateinit var tvTimeStamp: TextView
+    private lateinit var tvLat: TextView
+    private lateinit var tvLong: TextView
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,6 +58,7 @@ class MainActivity : AppCompatActivity() {
 
         cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
 
 
 
@@ -67,6 +71,54 @@ class MainActivity : AppCompatActivity() {
 
         }
 
+        if (Permissions.hasPermissionLocation(this)) {
+            requestLocation()
+
+        } else {
+            Permissions.requestLocationPermission(this)
+        }
+
+        initText()
+        initButton()
+
+
+        outputDirectory = getOutputDirectory()
+        cameraExecutor = Executors.newSingleThreadExecutor()
+
+
+    }
+
+
+    private fun requestLocation() {
+        LocationManager.Builder
+            .setInterval(4000)
+            .setFastestInterval(2000)
+            .setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY)
+            .create(this)
+            .request { latitude, longitude, accuracy ->
+                tvLat.text = "Lat: $latitude"
+                tvLong.text = "Long: $longitude"
+                tvAccuracy.text = "Acc: $accuracy m."
+                val getTime = System.currentTimeMillis()
+                val converterTime = SimpleDateFormat("d/MMM/yyyy HH:mm")
+                val formattedTime = converterTime.format(getTime)
+                tvTimeStamp.text = "Time:$formattedTime"
+
+
+            }
+
+    }
+
+    private fun initText() {
+        tvTimeStamp = binding.tvTimeStamp
+        tvLong = binding.tvLon
+        tvLat = binding.tvLat
+        tvAccuracy = binding.tvAccuracy
+
+    }
+
+
+    private fun initButton() {
         binding.btnTakePhoto.setOnClickListener {
             takePhoto()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -83,16 +135,20 @@ class MainActivity : AppCompatActivity() {
             startCamera()
         }
 
-        binding.btnGallery.setOnClickListener {
-            val intent = Intent(this, GalleryActivity::class.java)
-            startActivity(intent)
+        binding.imgLast.setOnClickListener {
+            Toast.makeText(this, "Clicked", Toast.LENGTH_SHORT).show()
+
+        }
+        binding.btnRefreshLocation.setOnClickListener(object : View.OnClickListener {
+            override fun onClick(v: View?) {
+                requestLocation()
+            }
+
         }
 
-        outputDirectory = getOutputDirectory()
-        cameraExecutor = Executors.newSingleThreadExecutor()
-
-
+        )
     }
+
 
     private fun animateFlash() {
         binding.root.postDelayed({
@@ -118,31 +174,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun takePhoto() {
-
         imageCapture?.let {
-            val filename = "JPEG_${System.currentTimeMillis()}.jpg"
-            val file = File(externalMediaDirs[0], filename)
-            val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
 
+            // Create time-stamped output file to hold the image
+            val photoFile = File(
+                outputDirectory,
+                SimpleDateFormat(
+                    FILENAME_FORMAT,
+                    Locale.US
+                ).format(System.currentTimeMillis()) + ".jpg"
+            )
+            // Create output options object which contains file + metadata
+            val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
+
+
+            // Set up image capture listener,
+            // which is triggered after photo has
+            // been taken
             it.takePicture(
                 outputOptions,
                 ContextCompat.getMainExecutor(this),
                 object : ImageCapture.OnImageSavedCallback {
                     override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                         // executed save here
-                        saveUri = Uri.fromFile(file)
-                        Log.i("GetURI", saveUri.toString())
+                        saveUri = Uri.fromFile(photoFile)
+
+
                         timestampImageAndSave(saveUri)
+                        binding.imgLast.rotation = 90f
+                        binding.imgLast.visibility = View.VISIBLE
+                        binding.imgLast.setImageBitmap(timestampImageAndSave(saveUri))
+
+                        saveBitmapToStorage(
+                            this@MainActivity,
+                            timestampImageAndSave(saveUri),
+                            "CoorsCam"
+                        )
+
 
                     }
 
                     override fun onError(exception: ImageCaptureException) {
-                        Toast.makeText(
-                            this@MainActivity,
-                            "${exception.message}",
-                            Toast.LENGTH_SHORT
-                        )
-                            .show()
+                        Log.i("takephoto", exception.message.toString())
 
                     }
 
@@ -152,91 +225,106 @@ class MainActivity : AppCompatActivity() {
 
     }
 
+    private fun saveBitmapToStorage(context: Context, bitmap: Bitmap, albumName: String) {
+        val rotedBitmap = bitmapRoted(bitmap)
+        val filename = "${System.currentTimeMillis()}.jpg"
+        val write: (OutputStream) -> Boolean = {
+            rotedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, it)
+        }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpg")
+                put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    "${Environment.DIRECTORY_DCIM}/$albumName"
+                )
+            }
 
-    private fun timestampImageAndSave(uri: Uri?): Bitmap {
-        val bitmapFromUri = MediaStore.Images.Media.getBitmap(this.contentResolver, uri)
-        val newImage =
-            Bitmap.createBitmap(bitmapFromUri.width, bitmapFromUri.height, Bitmap.Config.ARGB_8888)
+            context.contentResolver.let {
+                it.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)?.let { uri ->
+                    it.openOutputStream(uri)?.let(write)
+                }
+            }
+        } else {
+            val imagesDir =
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
+                    .toString() + File.separator + albumName
+            val file = File(imagesDir)
+            if (!file.exists()) {
+                file.mkdir()
+            }
+            val image = File(imagesDir, filename)
+            write(FileOutputStream(image))
 
-        val paint = Paint()
-        paint.color = Color.BLACK
-        paint.style = Paint.Style.FILL
-        paint.textSize = 20f
-        val canvas = Canvas(newImage)
-        canvas.drawText("Hello", 0f, 0f, paint)
-        canvas.save()
-        Log.i("canvas", "${canvas.toString()}")
+        }
 
-        return newImage
+    }
 
+    private fun bitmapRoted(bitmap: Bitmap): Bitmap {
+        val matrix = Matrix().apply { postRotate(90f) }
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
 
     }
 
 
-    private fun drawTextToBitmap(bitmap: Bitmap) {
-        val sizeBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
-        val currentTime = System.currentTimeMillis().toString()
-        val canvas = Canvas(sizeBitmap)
+    private fun timestampImageAndSave(uri: Uri?): Bitmap {
+
+
+        val bitmapFromUri = MediaStore.Images.Media.getBitmap(this.contentResolver, uri)
+        val bitmapSize =
+            Bitmap.createBitmap(bitmapFromUri.width, bitmapFromUri.height, bitmapFromUri.config)
+
+        val canvas = Canvas(bitmapSize)
+        canvas.drawBitmap(bitmapFromUri, 0f, 0f, null)
         val paint = Paint()
-        paint.textSize = 50f
         paint.color = Color.WHITE
-        paint.style = Paint.Style.FILL
-        val height: Float = paint.measureText("yY")
-        canvas.drawText(currentTime, 20f, height + 15f, paint)
-        canvas.drawBitmap(bitmap, 0f, 0f, paint)
-        try {
-            val filename = "JPEG_${System.currentTimeMillis()}.jpg"
-            val file = File(externalMediaDirs[0], filename)
-            bitmap.compress(
-                Bitmap.CompressFormat.JPEG,
-                100,
-                FileOutputStream(file)
+        paint.textSize = 130f
+        paint.textAlign = Paint.Align.LEFT
+        val x = -canvas.height.toFloat()
+        val y = canvas.width.toFloat()
 
-            )
-            val outputOptions = ImageCapture.OutputFileOptions.Builder(file).build()
-            Log.i("Bitmap", outputOptions.toString())
 
-        } catch (e: Exception) {
-            Toast.makeText(
-                this@MainActivity,
-                "${e.message}",
-                Toast.LENGTH_SHORT
-            )
-                .show()
+        canvas.rotate(-90f)
+        canvas.drawText("${tvAccuracy.text}", x, y - 1120f, paint)
+        canvas.drawText("${tvTimeStamp.text}", x, y - 970f, paint)
+        canvas.drawText("EPSG:4326 WGS84", x, y - 270f, paint)
+        canvas.save()
 
-        }
+        paint.textSize = 200f
+        canvas.drawText("Lat: ${tvLat.text}", x, y - 730f, paint)
+        canvas.drawText("Long: ${tvLong.text}", x, y - 480f, paint)
+        canvas.save()
 
+
+
+        return bitmapSize
 
     }
 
 
     private fun startCamera() {
-
         cameraProviderFuture.addListener(Runnable {
-            val cameraProvider = cameraProviderFuture.get()
-
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(binding.viewfinder.surfaceProvider)
-            }
-
-            imageCapture = ImageCapture.Builder()
-                .build()
-
-            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
+            // Used to bind the lifecycle of cameras to the lifecycle owner
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+            // Preview
+            val preview = Preview.Builder()
+                .build().also {
+                    it.setSurfaceProvider(binding.viewfinder.surfaceProvider)
+                }
+            imageCapture = ImageCapture.Builder().build()
             try {
+                // Unbind use cases before rebinding
                 cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview
-                )
 
+                // Bind use cases to camera
                 cameraProvider.bindToLifecycle(
                     this, cameraSelector, preview, imageCapture
                 )
 
             } catch (e: Exception) {
-                Toast.makeText(this, e.message.toString(), Toast.LENGTH_SHORT).show()
+                Log.e("startCamera", e.message.toString())
 
             }
         }, ContextCompat.getMainExecutor(this))
