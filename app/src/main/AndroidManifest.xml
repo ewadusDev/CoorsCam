@@ -18,9 +18,6 @@
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.CoorsCam">
         <activity
-            android:name=".ui.GalleryActivity"
-            android:exported="false" />
-        <activity
             android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>

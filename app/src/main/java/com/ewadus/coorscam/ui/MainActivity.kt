@@ -293,7 +293,7 @@ class MainActivity : AppCompatActivity() {
         canvas.save()
 
         paint.textSize = 200f
-        canvas.drawText("Lat: ${tvLat.text}", x, y - 730f, paint)
+        canvas.drawText("Lat: ${tvLat.text}", x, y - 750f, paint)
         canvas.drawText("Long: ${tvLong.text}", x, y - 480f, paint)
         canvas.save()
 
