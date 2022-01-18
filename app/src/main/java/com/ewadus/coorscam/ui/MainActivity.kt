@@ -24,6 +24,7 @@ import java.util.concurrent.Executors
 import android.graphics.Bitmap
 import android.os.*
 import android.view.View
+import android.widget.Gallery
 import android.widget.TextView
 import android.widget.Toast
 import androidx.camera.core.*
@@ -136,7 +137,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.imgLast.setOnClickListener {
-            Toast.makeText(this, "Clicked", Toast.LENGTH_SHORT).show()
+            val intent = Intent(Intent.ACTION_VIEW,null)
+            intent.type = "image/jpg"
+            startActivity(Intent.createChooser(intent,"Open in..."))
 
         }
         binding.btnRefreshLocation.setOnClickListener(object : View.OnClickListener {
@@ -272,6 +275,9 @@ class MainActivity : AppCompatActivity() {
     private fun timestampImageAndSave(uri: Uri?): Bitmap {
 
 
+        val icon =
+            BitmapFactory.decodeResource(this.applicationContext.resources, R.drawable.ic_app_round)
+        val iconScaled = Bitmap.createScaledBitmap(icon, 300, 300, true)
         val bitmapFromUri = MediaStore.Images.Media.getBitmap(this.contentResolver, uri)
         val bitmapSize =
             Bitmap.createBitmap(bitmapFromUri.width, bitmapFromUri.height, bitmapFromUri.config)
@@ -295,6 +301,8 @@ class MainActivity : AppCompatActivity() {
         paint.textSize = 200f
         canvas.drawText("Lat: ${tvLat.text}", x, y - 750f, paint)
         canvas.drawText("Long: ${tvLong.text}", x, y - 480f, paint)
+
+        canvas.drawBitmap(iconScaled, x + 2500f, y - 3800f, paint)
         canvas.save()
 
 
